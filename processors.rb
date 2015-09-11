@@ -125,16 +125,29 @@ SYNTAXP.push ActionWIND.new(/^EXIT FLAGS:\s*$/,
 SYNTAXP.push ActionWIND.new(/^EXIT FLAGS:\s*(.*)\s*$/,
 	[:default, lambda {|s,i,e| [s, [[:EXIT_FLAGS, e[:matchdata][1]]] ]}] )
 
-SYNTAXP.push ActionWIND.new(/^(".*?")\s*:\s*((".*?"(?:[^->\s]\S*)?)(\s*(<?->)\s*(".*?"(?:[^->\s]\S*)?))+)\s*$/,
+SYNTAXP.push ActionWIND.new(/^(".*?")\s*:\s*(\d*)?((".*?"(?:[^->\s]\S*)?)(\s*(<?->)\s*(\d*)?(".*?"(?:[^->\s]\S*)?))+)\s*$/,
 	[:default, lambda {|s,i,e|
-		exitname, roomstring = e[:matchdata][1], e[:matchdata][2]
-		lastroom = e[:matchdata][3]
-		commands = [[:CREATE_ROOM, lastroom]]
-		roomstring.scan(/\s*(<?->)\s*(".*?"(?:[^->\s]\S*)?)/).each {|match|
-			commands.push([:CREATE_ROOM, match[1]])
-			commands.push([:CREATE_EXIT, exitname, lastroom, match[1]])
-			commands.push([:CREATE_REVERSE_EXIT, exitname, lastroom, match[1]]) if match[0] == "<->"
-			lastroom = match[1]
+		if e[:matchdata][2] == ""
+			roomtype = 1
+		else
+			roomtype = e[:matchdata][2]
+		end
+			exitname, roomstring = e[:matchdata][1], e[:matchdata][3]
+			lastroom = e[:matchdata][4]
+			commands = [[:CREATE_ROOM, lastroom, roomtype]]
+		
+		
+		roomstring.scan(/\s*(<?->)\s*(\d*)?(".*?"(?:[^->\s]\S*)?)/).each {|match|
+	
+			if match[1] == ""
+				commands.push([:CREATE_ROOM, match[2], 1])
+				commands.push([:CREATE_EXIT, exitname, lastroom, match[2]])
+			else
+				commands.push([:CREATE_ROOM, match[2], match[1]])
+				commands.push([:CREATE_EXIT, exitname, lastroom, match[2]])
+			end
+			commands.push([:CREATE_REVERSE_EXIT, exitname, lastroom, match[2]]) if match[0] == "<->"
+			lastroom = match[2]
 		}
 		return {:state => s, :action => commands}
 	}])
@@ -233,6 +246,7 @@ class RoomNode
 	attr_accessor :parent, :parent_type
 	attr_accessor :zone, :zone_type
 	attr_accessor :flags
+	attr_accessor :roomtype
 	def initialize(id)
 		@id = mush_id_format(id)
 		@name = id_to_name(id)
@@ -244,6 +258,7 @@ class RoomNode
 		@zone = nil
 		@zone_type = nil
 		@flags = nil
+		@roomtype = 1
 		@buffer = ''
 		@properties = {}
 	end
@@ -460,6 +475,13 @@ def process_opcodes(opcode_array, options = {})
 					room.zone = stateobj[:room_zone]
 					room.zone_type = stateobj[:room_zone_type]
 				end
+				
+				
+				if operand[1] == "" then
+					room.roomtype = 1
+				else
+					room.roomtype = operand[1]
+				end
 				room.flags = stateobj[:room_flags]
 				room.set_buffer(graph.id_zones[operand[0]][:buffer]) if graph.id_zones[operand[0]]
 				room.set_buffer(graph.id_parents[operand[0]][:buffer]) if graph.id_parents[operand[0]]
@@ -669,6 +691,9 @@ def process_graph(graph, options = {})
 					output << "think parent(here,[v(#{p.attr_base}#{p.id})])"
 				end
 			end
+		end
+		if roomnode.roomtype then
+			output << "@setroomtype here=#{roomnode.roomtype}"
 		end
 		if roomnode.zone then
 			output << "@chzone here=#{roomnode.zone}" if roomnode.zone_type == :raw
